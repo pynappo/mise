@@ -1175,19 +1175,19 @@ impl Settings {
 
 fn redacted_settings_for_debug(settings: &Settings) -> Settings {
     let mut debug_settings = settings.clone();
-    if debug_settings.task.cache_remote_token.is_some() {
-        debug_settings.task.cache_remote_token = Some("[redacted]".to_string());
+    if debug_settings.cache.remote_token.is_some() {
+        debug_settings.cache.remote_token = Some("[redacted]".to_string());
     }
     debug_settings
 }
 
 fn redact_settings_table(table: &mut toml::Table) {
-    let Some(task) = table.get_mut("task").and_then(toml::Value::as_table_mut) else {
+    let Some(cache) = table.get_mut("cache").and_then(toml::Value::as_table_mut) else {
         return;
     };
-    if task.contains_key("cache_remote_token") {
-        task.insert(
-            "cache_remote_token".to_string(),
+    if cache.contains_key("remote_token") {
+        cache.insert(
+            "remote_token".to_string(),
             toml::Value::String("[redacted]".to_string()),
         );
     }
@@ -1388,7 +1388,7 @@ mod tests {
     #[test]
     fn debug_settings_redact_remote_cache_token() {
         let mut settings = Settings::default();
-        settings.task.cache_remote_token = Some("super-secret-token".to_string());
+        settings.cache.remote_token = Some("super-secret-token".to_string());
 
         let debug = format!("{:?}", redacted_settings_for_debug(&settings));
 
@@ -1399,7 +1399,7 @@ mod tests {
     #[test]
     fn settings_dictionary_redacts_remote_cache_token() {
         let mut settings = Settings::default();
-        settings.task.cache_remote_token = Some("super-secret-token".to_string());
+        settings.cache.remote_token = Some("super-secret-token".to_string());
 
         let table = settings.as_dict().unwrap();
         let encoded = toml::to_string(&table).unwrap();

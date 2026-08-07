@@ -1,28 +1,30 @@
-# Remote Task Cache Protocol
+# Remote Build Cache Protocol
 
 > [!WARNING]
-> Remote task caching is experimental and is not yet configurable. This document defines the first
-> public protocol, version 1. There is no earlier remote-cache protocol to preserve.
+> Remote build caching is experimental. This document defines protocol version 2, which generalizes
+> the original task-only store contract into a shared action-cache protocol.
 
-The protocol is a secure, content-addressed cache protocol for task inputs and outputs. It does not
-expose mise's local cache directory, manifest, or archive format. Local storage is an implementation
-detail and may use archives or packs without changing the remote protocol.
+The protocol is a secure, content-addressed cache protocol for build actions and their outputs.
+Tasks, compiler invocations, build-system operations, and future adapters share the same transport,
+storage, authentication, and integrity model. It does not expose mise's local cache directories,
+manifests, or archive formats. Local storage is an implementation detail and may use archives or
+packs without changing the remote protocol.
 
-Version 1 separates two kinds of immutable data:
+Version 2 separates two kinds of immutable data:
 
 - **Content-addressable storage (CAS)** contains blobs and directory objects identified by their
   digest.
-- **Action results** map the digest of a canonical task action to its output directory, logs, and
-  provenance.
+- **Action results** map the digest of a canonical build action to its output directory and logs.
 
-This separation deduplicates content between tasks, permits partial and parallel transfers, and
+This separation deduplicates content between actions, permits partial and parallel transfers, and
 allows a server to verify all referenced content before publishing a cache hit.
 
 ## Terminology
 
 - **Namespace**: an opaque authorization and isolation scope, normally representing an organization,
   repository, branch, pull request, or user.
-- **Action**: the canonical description of a task execution and every input that affects its result.
+- **Action**: the typed canonical description of a build operation and every input that affects its
+  result.
 - **Action result**: the immutable record published after an action completes successfully.
 - **Blob**: uninterpreted bytes in CAS.
 - **Directory object**: canonical JSON in CAS describing files, subdirectories, and symbolic links.
@@ -31,22 +33,22 @@ allows a server to verify all referenced content before publishing a cache hit.
 
 ## Transport and versioning
 
-Version 1 uses HTTPS and HTTP semantics. Requests carrying authorization credentials require HTTPS,
+Version 2 uses HTTPS and HTTP semantics. Requests carrying authorization credentials require HTTPS,
 except for loopback development servers (`localhost`, `127.0.0.0/8`, and `::1`). Clients may connect
 to an unauthenticated non-loopback HTTP service after emitting a visible warning. This mode provides
-neither confidentiality nor server authenticity: an on-path attacker can replace an unsigned action
-result and its internally consistent CAS graph. Implementations may use HTTP/1.1, HTTP/2, or HTTP/3.
+neither confidentiality nor server authenticity: an on-path attacker can replace an action result
+and its internally consistent CAS graph. Implementations may use HTTP/1.1, HTTP/2, or HTTP/3.
 
 Every API request sends:
 
 | Header                 | Value                                                          |
 | ---------------------- | -------------------------------------------------------------- |
-| `Mise-Cache-Protocol`  | `1`                                                            |
+| `Mise-Cache-Protocol`  | `2`                                                            |
 | `Mise-Cache-Namespace` | The namespace for the operation, except on discovery endpoints |
 
-The URL prefix `/v1` is the protocol's major version. Compatible additions are advertised as
+The URL prefix `/v2` is the protocol's major version. Compatible additions are advertised as
 capabilities and do not require a new URL prefix. An incompatible wire or integrity change requires
-a new major protocol; version 1 must not be used as an alias for an incompatible implementation.
+a new major protocol; version 2 must not be used as an alias for an incompatible implementation.
 
 Servers must ignore unknown JSON response fields. Clients must not send unknown request fields
 unless a negotiated capability permits them.
@@ -63,28 +65,27 @@ The JSON representation of a digest is:
 }
 ```
 
-Version 1 defines `blake3` and `sha256`. Servers advertise the algorithms they accept. Mise clients
+Protocol version 2 defines `blake3` and `sha256`. Servers advertise the algorithms they accept. Mise clients
 prefer BLAKE3 but may use SHA-256 for deployments that require it. A digest always covers the exact,
 uncompressed bytes and includes their length. A server must reject malformed hashes, unsupported
 algorithms, negative sizes, and content that does not match its declared digest.
 
-Digest URL components use `/v1/blobs/{algorithm}/{hash}/{size}`. The algorithm and hash must match
+Digest URL components use `/v2/blobs/{algorithm}/{hash}/{size}`. The algorithm and hash must match
 the JSON representation, and `size` is an unsigned decimal integer.
 
 ## Capabilities
 
-`GET /v1/capabilities` requires no namespace and returns the protocol and server limits:
+`GET /v2/capabilities` requires no namespace and returns the protocol and server limits:
 
 ```json
 {
-  "protocol": { "major": 1, "minor": 0 },
+  "protocol": { "major": 2, "minor": 0 },
   "digest_algorithms": ["blake3", "sha256"],
   "compressors": ["identity", "zstd"],
   "features": {
     "batch": true,
     "resumable_uploads": true,
-    "delegated_transfers": true,
-    "signed_results": ["ed25519"]
+    "delegated_transfers": true
   },
   "limits": {
     "max_batch_items": 1000,
@@ -98,22 +99,25 @@ Clients must honor advertised limits and fall back from optional features. Serve
 `426 Upgrade Required` for unsupported major versions and include their supported major version in
 `Mise-Cache-Protocol`.
 
-`GET /v1/status` is an operational health endpoint. A successful response means the API process is
+`GET /v2/status` is an operational health endpoint. A successful response means the API process is
 live; it is not a substitute for capability negotiation or an authorization check.
 
 ## Canonical objects
 
 Protocol JSON objects use UTF-8 and the JSON Canonicalization Scheme (RFC 8785) whenever their bytes
-are hashed or signed. Duplicate object keys, invalid UTF-8, non-canonical encodings, and values that
+are hashed. Duplicate object keys, invalid UTF-8, non-canonical encodings, and values that
 cannot be represented by the declared schema must be rejected.
 
 ### Action descriptor
 
-An action descriptor contains everything declared to affect a task result:
+An action descriptor contains a stable action kind and everything declared to affect its result.
+Action schema version 1 defines `task`; compatible capabilities may add compiler and build-system
+kinds without changing the CAS or action-result APIs:
 
 ```json
 {
   "version": 1,
+  "kind": "task",
   "task": "build",
   "phase": "run",
   "run": [{ "task": "cargo build --release" }],
@@ -132,9 +136,11 @@ An action descriptor contains everything declared to affect a task result:
 }
 ```
 
-Arrays whose order has no task meaning must be sorted by the field defined by their schema. Version
-strings are opaque and are never semantically ordered. Secrets must not appear in an action
-descriptor. Environment variables are included only when the task declares them as cache inputs.
+Arrays whose order has no action meaning must be sorted by the field defined by their schema.
+Version strings are opaque and are never semantically ordered. Secrets must not appear in an action
+descriptor. A task includes environment variables only when it declares them as cache inputs. Every
+action kind defines its own canonical fields and cacheability rules; a server may reject kinds it
+does not advertise.
 
 `source_hash` binds the declared source paths and contents without uploading task inputs that are not
 needed for cache-only operation. The canonical descriptor is stored in CAS. Its digest is the action
@@ -180,30 +186,28 @@ rather than being silently changed.
 ### Action result
 
 An action-result response and commit body have media type
-`application/vnd.mise.cache-action-result.v1+json`. The wire object is always an envelope so an
-unsigned result and a signed result have the same schema:
-
-```json
-{
-  "result": {
-    "version": 1,
-    "action": { "algorithm": "blake3", "hash": "...", "size": 789 },
-    "output_root": { "algorithm": "blake3", "hash": "...", "size": 456 },
-    "metadata": { "algorithm": "blake3", "hash": "...", "size": 234 }
-  },
-  "signatures": []
-}
-```
-
-Only successful, cacheable task executions may be published. `output_root` is absent when a task has
-no declared output files. `metadata` references canonical
-`application/vnd.mise.cache-client-metadata.v1+json` containing the output roots, captured output,
-task identity, restored-byte estimate, and execution duration needed by mise clients. The metadata
-schema is part of the remote protocol and is independent of mise's local cache manifest.
+`application/vnd.mise.cache-action-result.v1+json`:
 
 ```json
 {
   "version": 1,
+  "action": { "algorithm": "blake3", "hash": "...", "size": 789 },
+  "output_root": { "algorithm": "blake3", "hash": "...", "size": 456 },
+  "metadata": { "algorithm": "blake3", "hash": "...", "size": 234 }
+}
+```
+
+Only successful, cacheable action executions may be published. `output_root` is absent when an
+action has no output files. `metadata` references canonical
+`application/vnd.mise.cache-client-metadata.v1+json` containing typed client metadata. Task metadata
+contains output roots, captured output, task identity, restored-byte estimate, and execution
+duration. The metadata schema is part of the remote protocol and is independent of mise's local
+cache manifests.
+
+```json
+{
+  "version": 1,
+  "kind": "task",
   "task_identity": "build:crates/widget",
   "roots": ["target/release/widget"],
   "output": [{ "stream": "stdout", "line": "built widget" }],
@@ -212,13 +216,12 @@ schema is part of the remote protocol and is independent of mise's local cache m
 }
 ```
 
-Root paths use forward slashes, are relative to the task working directory, and must satisfy the same
-path-safety rules as directory nodes. Output entries preserve their declared order.
+Each metadata kind has a versioned schema. Task root paths use forward slashes, are relative to the
+task working directory, and must satisfy the same path-safety rules as directory nodes. Task output
+entries preserve their declared order.
 
 The action descriptor and every object reachable from the result must exist and validate before the
-result becomes readable. Authenticated producer identity, repository, revision, CI run, and commit
-time are recorded by the server alongside the immutable result and included in signed receipts; a
-client cannot establish its own trusted provenance by placing claims in the result body.
+result becomes readable.
 
 Retention, last-access time, quota accounting, internal storage location, and server annotations are
 not part of the immutable action result.
@@ -227,7 +230,7 @@ not part of the immutable action result.
 
 ### Find missing blobs
 
-`POST /v1/blobs:missing` accepts `application/vnd.mise.cache-digests.v1+json`:
+`POST /v2/blobs:missing` accepts `application/vnd.mise.cache-digests.v1+json`:
 
 ```json
 { "digests": [{ "algorithm": "blake3", "hash": "...", "size": 1234 }] }
@@ -244,7 +247,7 @@ visibility domain.
 
 ### Read a blob
 
-`GET /v1/blobs/{algorithm}/{hash}/{size}` returns `200 OK`, or `404 Not Found` when the caller cannot
+`GET /v2/blobs/{algorithm}/{hash}/{size}` returns `200 OK`, or `404 Not Found` when the caller cannot
 read the object. The response includes `Digest` and `Content-Length` metadata. Servers may honor
 `Range` and may return a negotiated `Content-Encoding: zstd`; the URL digest always describes the
 uncompressed bytes.
@@ -260,7 +263,7 @@ reporting capability is enabled.
 ### Upload blobs
 
 Small blobs may be sent directly with
-`PUT /v1/blobs/{algorithm}/{hash}/{size}` and `If-None-Match: *`. The server returns:
+`PUT /v2/blobs/{algorithm}/{hash}/{size}` and `If-None-Match: *`. The server returns:
 
 - `201 Created` after verifying and publishing new content;
 - `204 No Content` when identical verified content already exists;
@@ -270,10 +273,10 @@ Small blobs may be sent directly with
 
 Large or resumable uploads use an upload session:
 
-1. `POST /v1/uploads` declares one or more digests.
+1. `POST /v2/uploads` declares one or more digests.
 2. The server returns an upload ID, expiry, offsets, and server or delegated upload URLs.
 3. The client uploads chunks and resumes from server-confirmed offsets when necessary.
-4. `POST /v1/uploads/{id}/finalize` verifies complete content and promotes it into CAS.
+4. `POST /v2/uploads/{id}/finalize` verifies complete content and promotes it into CAS.
 
 Delegated uploads always target an isolated staging key, never a readable CAS key. A presigned S3
 upload is therefore insufficient by itself: finalization must validate the declared digest before
@@ -281,20 +284,19 @@ publication. Expired or abandoned staging objects are removed asynchronously.
 
 ## Action-result operations
 
-`GET /v1/action-results/{algorithm}/{hash}/{size}` returns a committed action result or `404 Not
+`GET /v2/action-results/{algorithm}/{hash}/{size}` returns a committed action result or `404 Not
 Found`. The namespace identifies the single read scope for that request. Clients configured with
 multiple read scopes query them in policy order rather than sending an ambiguous multi-namespace
 request.
 
-`PUT /v1/action-results/{algorithm}/{hash}/{size}` commits an action result. It requires
+`PUT /v2/action-results/{algorithm}/{hash}/{size}` commits an action result. It requires
 `If-None-Match: *`. The server must atomically:
 
 1. authorize writes to the namespace;
 2. verify that the URL digest matches the result and stored action descriptor;
-3. validate the result schema and signatures required by policy;
+3. validate the result schema;
 4. verify the complete reachable directory and blob graph;
-5. record authenticated producer provenance;
-6. publish the immutable mapping.
+5. publish the immutable mapping.
 
 The response is `201 Created`, `204 No Content` for an identical committed result, `409 Conflict`
 when a different result already owns the action key, or `412 Precondition Failed` when the immutable
@@ -305,53 +307,20 @@ Ordinary cache writers do not receive delete permission. Administrative deletion
 authorized endpoint and must remove the action-result mapping before unreachable CAS data is garbage
 collected. A client-side cache clear operation must not imply authority to delete shared remote data.
 
-## Signatures and provenance
-
-CAS digests provide integrity but do not prove who associated an action with an output. The
-action-result envelope may therefore contain signatures:
-
-```json
-{
-  "result": {
-    "version": 1,
-    "action": { "algorithm": "blake3", "hash": "...", "size": 789 }
-  },
-  "signatures": [
-    {
-      "algorithm": "ed25519",
-      "key_id": "cache.example.com/2026-08",
-      "signature": "..."
-    }
-  ]
-}
-```
-
-The signature input is the ASCII domain separator `mise-cache-action-result-v1`, one NUL byte, and
-the canonical JSON bytes of `result`. Version 1 defines Ed25519 signatures. Servers may also retain
-CI identity attestations and issue a signed commit receipt.
-
-Clients configured to require signatures treat an absent, unknown, or invalid signature as a cache
-miss and display a warning. Public verification keys are configuration; private signing keys must
-not be distributed to untrusted clients. Shared-secret HMAC is not the default because any verifier
-holding the secret could forge results.
-
 ## Authentication and namespace policy
 
 The protocol supports bearer tokens, OIDC-derived tokens, mTLS, and trusted reverse-proxy identity.
 Authentication mechanism discovery is deployment configuration rather than CAS object metadata.
 Credentials must be scoped and redacted from diagnostics.
 
-Servers authorize reads and writes independently. A secure deployment should provide at least:
+Servers authorize reads and writes independently. The standard CI policy is one shared namespace:
+protected branches may write it, while pull-request jobs may only read it. The server enforces this
+from verified OIDC claims such as repository, ref, event, and workflow identity; a client-provided
+remote mode is defense in depth, not the authorization boundary.
 
-- a shared namespace writable only by protected-branch or otherwise trusted CI;
-- read-only shared access for untrusted pull-request jobs;
-- isolated write namespaces for pull requests and developers;
-- an explicit trusted promotion operation when isolated results should become shared.
-
-Immutable storage does not prevent cache poisoning by the first writer. Namespace authorization,
-producer provenance, and signature policy are required even when the backing object store rejects
-overwrites. A single bucket credential shared by trusted and untrusted jobs is not a conforming
-security boundary.
+Immutable storage does not prevent cache poisoning by the first writer. OIDC-backed namespace
+authorization is therefore required even when the backing object store rejects overwrites. A single
+bucket credential shared by trusted and untrusted jobs is not a conforming security boundary.
 
 ## Failure and retry behavior
 
@@ -387,7 +356,7 @@ is the canonical protocol specification.
 
 A server using S3 should:
 
-- keep action metadata, authorization, provenance, access times, references, and quotas in a
+- keep action metadata, authorization, access times, references, and quotas in a
   transactional metadata store;
 - store CAS bytes under digest-derived immutable keys;
 - use random staging keys for delegated uploads;
@@ -401,11 +370,11 @@ replace application authorization or digest verification.
 
 ## Conformance
 
-The repository's compatibility suite is the executable definition of required version 1 behavior.
+The repository's compatibility suite is the executable definition of required version 2 behavior.
 It must cover capability negotiation, canonical object validation, namespace isolation, independent
 read/write authorization, missing-blob batches, streamed and resumable transfers, digest rejection,
 atomic action-result commits, immutable conflicts, delegated-transfer credential isolation,
-signatures, corruption handling, and retry semantics.
+corruption handling, and retry semantics.
 
-Servers may implement additional administrative, metrics, and health APIs outside `/v1`. Those APIs
-must not weaken the version 1 cache invariants.
+Servers may implement additional administrative, metrics, and health APIs outside `/v2`. Those APIs
+must not weaken the version 2 cache invariants.

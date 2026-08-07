@@ -684,8 +684,8 @@ The existing `--no-cache` option controls fetching remote task definitions inste
 
 #### Remote cache and sensitive data
 
-Configure an experimental remote service with `task.cache_remote_url` and a non-empty
-`task.cache_remote_namespace`. The namespace is an opaque repository or organization identifier;
+Configure the experimental remote build-cache service with `cache.remote_url` and a non-empty
+`cache.remote_namespace`. The namespace is an opaque repository or organization identifier;
 the server must isolate entries by both namespace and cache key. It is routing metadata, not an
 authentication mechanism or secret. Use a distinct namespace wherever writers should not be able to
 influence one another's cache entries.
@@ -693,13 +693,13 @@ influence one another's cache entries.
 ```mise-toml
 [settings]
 experimental = true
-task.cache_remote_url = "https://cache.example.com/mise/"
-task.cache_remote_namespace = "acme/widgets"
-task.cache_remote_mode = "read-write"
+cache.remote_url = "https://cache.example.com/mise/"
+cache.remote_namespace = "acme/widgets"
+cache.remote_mode = "read-write"
 ```
 
-Set `MISE_TASK_CACHE_REMOTE_TOKEN` in the process environment to send a bearer credential. The
-equivalent `task.cache_remote_token` setting is global-only, but the environment variable is
+Set `MISE_CACHE_REMOTE_TOKEN` in the process environment to send a bearer credential. The
+equivalent `cache.remote_token` setting is global-only, but the environment variable is
 preferred so a token does not need to be written to disk. Mise redacts the token from settings trace
 output and marks its HTTP header as sensitive. It requires HTTPS for non-loopback services; plain
 HTTP is accepted only for local development servers. Servers should still use short-lived,
@@ -707,10 +707,10 @@ least-privilege credentials, restrict namespace access, avoid logging authorizat
 encrypt or otherwise protect stored cache objects according to their sensitivity and retention
 requirements.
 
-For rotating credentials, set `MISE_TASK_CACHE_REMOTE_TOKEN_FILE` to a file containing only the
+For rotating credentials, set `MISE_CACHE_REMOTE_TOKEN_FILE` to a file containing only the
 bearer token. Mise rereads the file before every request, which supports Kubernetes projected
 service account tokens without restarting a long-running process. The equivalent
-`task.cache_remote_token_file` setting is global-only.
+`cache.remote_token_file` setting is global-only.
 
 In GitHub Actions, mise can acquire and refresh a short-lived OIDC token itself. Grant the workflow
 permission to request an identity token and set its audience explicitly:
@@ -724,7 +724,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      MISE_TASK_CACHE_REMOTE_OIDC_AUDIENCE: https://cache.example.com
+      MISE_CACHE_REMOTE_OIDC_AUDIENCE: https://cache.example.com
     steps:
       - uses: actions/checkout@v5
       - run: mise run test
@@ -737,7 +737,7 @@ global-only and acquisition fails clearly when the workflow lacks `id-token: wri
 
 Credential precedence is explicit token, token file, then automatic OIDC. This lets an emergency
 static credential override workload identity without changing project configuration. Other CI
-providers can supply their issued OIDC token directly through `MISE_TASK_CACHE_REMOTE_TOKEN`; they
+providers can supply their issued OIDC token directly through `MISE_CACHE_REMOTE_TOKEN`; they
 do not need a protocol-specific integration.
 
 Task cache entries are not secret-free metadata. They contain captured stdout and stderr plus every

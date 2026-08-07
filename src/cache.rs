@@ -11,8 +11,8 @@ use flate2::write::ZlibEncoder;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use path_absolutize::Absolutize;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::sync::LazyLock as Lazy;
 
 use crate::build_time::built_info;
@@ -23,6 +23,37 @@ use crate::platform::Platform;
 use crate::rand::random_string;
 use crate::toolset::env_cache::CachedEnv;
 use crate::{dirs, file};
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Default,
+    strum::EnumString,
+    strum::Display,
+    PartialEq,
+    Eq,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+pub enum CacheRemoteMode {
+    #[default]
+    ReadWrite,
+    ReadOnly,
+    WriteOnly,
+}
+
+impl CacheRemoteMode {
+    pub(crate) fn reads(self) -> bool {
+        matches!(self, Self::ReadWrite | Self::ReadOnly)
+    }
+
+    pub(crate) fn writes(self) -> bool {
+        matches!(self, Self::ReadWrite | Self::WriteOnly)
+    }
+}
 
 #[derive(Debug)]
 pub struct CacheManagerBuilder {

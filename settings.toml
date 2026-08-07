@@ -258,6 +258,81 @@ parse_env = "list_by_comma"
 rust_type = "Vec<String>"
 type = "ListString"
 
+[cache.remote_namespace]
+description = "[experimental] Namespace sent to the remote build cache."
+docs = """
+Opaque repository or organization namespace used to isolate remote build-cache entries. This
+setting is required when [`cache.remote_url`](#cache-remote-url) is configured and is shared by
+task, compiler, and future build-cache clients.
+"""
+env = "MISE_CACHE_REMOTE_NAMESPACE"
+optional = true
+type = "String"
+
+[cache.remote_mode]
+default = "read-write"
+description = "[experimental] Remote build-cache access mode."
+docs = """
+Control access to the shared remote build cache while keeping local caches enabled:
+
+- `read-write` reads remote misses and uploads successful local results.
+- `read-only` reads remote misses without uploading results.
+- `write-only` uploads results without reading remote entries.
+
+Adapter-specific controls remain authoritative. For task output caching, the per-run
+`--task-cache=local-only` mode disables all remote access.
+"""
+enum = ["read-write", "read-only", "write-only"]
+env = "MISE_CACHE_REMOTE_MODE"
+rust_type = "crate::cache::CacheRemoteMode"
+type = "String"
+
+[cache.remote_oidc_audience]
+description = "[experimental] Audience for an automatically acquired remote cache OIDC token."
+docs = """
+Acquire a short-lived OIDC token for this audience when running in a supported workload identity
+environment. GitHub Actions is supported through its OIDC request environment variables. This
+setting is global-only so shared project configuration cannot choose a token audience.
+"""
+env = "MISE_CACHE_REMOTE_OIDC_AUDIENCE"
+global_only = true
+optional = true
+type = "String"
+
+[cache.remote_token]
+description = "[experimental] Bearer token for remote build-cache authentication."
+docs = """
+Authenticate remote build-cache requests with an HTTP `Authorization: Bearer` header. Prefer the
+`MISE_CACHE_REMOTE_TOKEN` environment variable or a protected global configuration file; this
+setting is global-only so shared project configuration cannot supply credentials.
+"""
+env = "MISE_CACHE_REMOTE_TOKEN"
+global_only = true
+optional = true
+type = "String"
+
+[cache.remote_token_file]
+description = "[experimental] File containing a remote build-cache bearer token."
+docs = """
+Read the remote build-cache bearer token from this file before each request. This supports rotating
+credentials such as Kubernetes projected service account tokens. This setting is global-only so
+shared project configuration cannot select a credential file.
+"""
+env = "MISE_CACHE_REMOTE_TOKEN_FILE"
+global_only = true
+optional = true
+type = "Path"
+
+[cache.remote_url]
+description = "[experimental] Base URL for the remote build-cache service."
+docs = """
+Enable the versioned HTTP remote build-cache protocol at this base URL. Remote access also requires
+[`cache.remote_namespace`](#cache-remote-namespace). Leave unset to use only local caches.
+"""
+env = "MISE_CACHE_REMOTE_URL"
+optional = true
+type = "Url"
+
 [cache_prune_age]
 default = "30d"
 description = "Delete files in cache that have not been accessed in this duration"
@@ -2688,81 +2763,6 @@ unset to disable the size limit.
 env = "MISE_TASK_CACHE_MAX_SIZE"
 optional = true
 type = "String"
-
-[task.cache_remote_mode]
-default = "read-write"
-description = "[experimental] Remote task cache access mode."
-docs = """
-Control remote cache access while keeping the local task cache enabled:
-
-- `read-write` reads remote misses and uploads successful local results.
-- `read-only` reads remote misses without uploading results.
-- `write-only` uploads results without reading remote entries.
-
-The per-run `--task-cache` mode remains authoritative. In particular, `--task-cache=local-only`
-disables all remote access.
-"""
-enum = ["read-write", "read-only", "write-only"]
-env = "MISE_TASK_CACHE_REMOTE_MODE"
-rust_type = "crate::task::TaskCacheRemoteMode"
-type = "String"
-
-[task.cache_remote_namespace]
-description = "[experimental] Namespace sent to the remote task cache."
-docs = """
-Opaque repository or organization namespace used to isolate remote cache entries. This setting is
-required when [`task.cache_remote_url`](#task-cache-remote-url) is configured.
-"""
-env = "MISE_TASK_CACHE_REMOTE_NAMESPACE"
-optional = true
-type = "String"
-
-[task.cache_remote_oidc_audience]
-description = "[experimental] Audience for an automatically acquired remote cache OIDC token."
-docs = """
-Acquire a short-lived OIDC token for this audience when running in a supported workload identity
-environment. GitHub Actions is supported through its OIDC request environment variables. This
-setting is global-only so shared project configuration cannot choose a token audience.
-"""
-env = "MISE_TASK_CACHE_REMOTE_OIDC_AUDIENCE"
-global_only = true
-optional = true
-type = "String"
-
-[task.cache_remote_token]
-description = "[experimental] Bearer token for remote task cache authentication."
-docs = """
-Authenticate remote task cache requests with an HTTP `Authorization: Bearer` header. Prefer the
-`MISE_TASK_CACHE_REMOTE_TOKEN` environment variable or a protected global configuration file; this
-setting is global-only so shared project configuration cannot supply credentials.
-"""
-env = "MISE_TASK_CACHE_REMOTE_TOKEN"
-global_only = true
-optional = true
-type = "String"
-
-[task.cache_remote_token_file]
-description = "[experimental] File containing a remote task cache bearer token."
-docs = """
-Read the remote task cache bearer token from this file before each request. This supports rotating
-credentials such as Kubernetes projected service account tokens. This setting is global-only so
-shared project configuration cannot select a credential file.
-"""
-env = "MISE_TASK_CACHE_REMOTE_TOKEN_FILE"
-global_only = true
-optional = true
-type = "Path"
-
-[task.cache_remote_url]
-description = "[experimental] Base URL for the remote task cache service."
-docs = """
-Enable the versioned HTTP remote task cache protocol at this base URL. Remote access also requires
-[`task.cache_remote_namespace`](#task-cache-remote-namespace). Leave unset to use only the local
-task cache.
-"""
-env = "MISE_TASK_CACHE_REMOTE_URL"
-optional = true
-type = "Url"
 
 [task.disable_paths]
 default = []
