@@ -1,0 +1,23 @@
+[package]
+name = "mise-cache"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Low-overhead build cache data plane for mise"
+homepage = "https://github.com/jdx/mise"
+repository = "https://github.com/jdx/mise"
+publish = false
+
+[[bin]]
+name = "mise-cache"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+eyre = "0.6"
+mise-cache-core = { path = "../cache-core" }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+
+[dev-dependencies]
+tempfile = "3"

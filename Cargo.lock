@@ -6435,6 +6435,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mise-cache"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "eyre",
+ "mise-cache-core",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "mise-cache-core"
 version = "0.1.0"
 dependencies = [
